@@ -8,12 +8,22 @@ This document defines the compatibility promises `opencode-a2a` currently uphold
 - A2A Python SDK: `a2a-sdk==1.2.3` (SDK package version; not an OpenCode API version)
 - Supported A2A protocol line: `1.0`
 - OpenCode runtime line: `1.18.x` (verified with `1.18.19`)
+- Experimental exclusive execution profile: OpenCode `2.0.28` only; see the
+  [deployment contract](./v2-exclusive-execution.md).
 
-OpenCode V2 is an opt-in, experimental session-transport slice selected with
+By default, OpenCode V2 is an opt-in, experimental session-transport slice selected with
 `OPENCODE_API_VERSION=v2`. It implements `/api/info`, `/api/location`, and
 session create/get/list transport only; A2A prompt execution and all
 OpenCode-specific JSON-RPC extensions remain unavailable. This remains an
 explicit safety gate, not a claim that V2 prompt execution works.
+
+The additional selector `OPENCODE_V2_EXECUTION=exclusive` enables a separately
+verified restricted profile: dedicated private upstream, gateway-created
+single-flight sessions, text execution, and streaming read/question
+interventions. It does not remove the default gate or solve general shared-session
+correlation. The following legacy/default-V2 discussion describes selection
+**without** that explicit profile; its earlier general correlation NO-GO remains
+valid. See the scoped acceptance matrix below.
 
 The V2 selector is **OpenCode's upstream HTTP API version**, not "A2A SDK V2".
 The runtime continues to expose A2A protocol 1.0 interfaces. Its V2 Agent Card
@@ -44,7 +54,41 @@ permission/form interventions, request-scoped model overrides, structured tool
 execution, or outbound `a2a_call` support. `2.0.28` evidence is limited to
 session transport plus an upstream-only correlation probe; no V2 model-backed
 A2A acceptance run is claimed. Parent epic
-#1 and the #4/#5 acceptance criteria remain open and unverified.
+#1 and the original unrestricted #4/#5 acceptance criteria remain open. The
+exclusive profile's narrower evidence does not silently close those criteria.
+
+### Exclusive-profile acceptance matrix
+
+Evidence is recorded in [the sanitized acceptance record](./evidence/v2-exclusive-acceptance.json).
+`PASS` applies only to the described tested subset; `NOT VERIFIED` is not a
+support claim. V1 remains the stable default. Upstream review/merge and the
+epic's final scope decision are separate from these execution results.
+
+| Capability | V1 | V2 exclusive mode | Evidence / limitation |
+| --- | --- | --- | --- |
+| Session creation | PASS | PASS | Real pinned servers; V2 session-only smoke and model admission |
+| A2A streaming | PASS | PASS | Real V1 JSON-RPC; real V2 REST and JSON-RPC, assistant artifacts only |
+| A2A non-streaming | PASS | PASS | Real model, terminal state and final artifacts rather than admission |
+| Follow-up | PASS | PASS | Remembered nonce; V2 requires a healthy live gateway session |
+| Concurrent sessions | NOT VERIFIED | PASS | Separate V2 contexts run without output mixing |
+| Shared-session concurrency | NOT VERIFIED | UNSUPPORTED | V1 risk #8 remains; V2 serializes gateway requests and excludes other writers |
+| Cancellation | PASS | PASS | V1 durable canceled state; V2 observed active interruption and local queued cancellation |
+| Permissions | PASS | PASS | V1 bash allow/reject; V2 read once/reject only, no blanket or persistent grant |
+| Forms / questions | PASS | PASS | V1 question reply; V2 question string/multiselect and invalid/stale/cross-owner rejection |
+| Request-scoped model selection | NOT VERIFIED | UNSUPPORTED | V2 backend model configured explicitly; overrides rejected before upstream calls |
+| `a2a_call` | NOT VERIFIED | UNSUPPORTED | V2 tool policy and discovery exclude it |
+| Disconnect recovery | NOT VERIFIED | UNSUPPORTED | V2 gap/terminal loss yields failure and quarantine, not replay or successful recovery |
+| Lost-event / ambiguous-admission safety | NOT VERIFIED | PASS | Real upstream plus transport fault injection; one admission, no false success or resend |
+| Unary interventions / rich forms | NOT VERIFIED | UNSUPPORTED | Explicit rejection/quarantine; only streaming supported question fields are exposed |
+| Reasoning blocks | NOT VERIFIED | NOT VERIFIED | Deterministic native mapping tests pass; accepted live run observed text/tool blocks only |
+
+V1 cancellation remains an A2A terminal-state contract with best-effort upstream
+abort; it is not a rollback or exactly-once side-effect guarantee. V2 native
+pending-inbox deletion is not independently advertised as successful cancellation:
+without terminal proof it fails uncertain and retains quarantine. Restart,
+retired-context continuation, and transparent upstream feed reconnection are not
+supported by the exclusive profile. See [reproduction commands and detailed
+preconditions](./v2-exclusive-execution.md#reproduce-the-live-evidence).
 
 The pinned OpenCode `2.0.28` source confirms one useful correlation link: a
 caller-supplied `Session.Message.ID` is reconciled as the inbox ID, and the

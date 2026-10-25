@@ -38,3 +38,7 @@ The following rules apply to coding agent collaboration in this repository. Thes
 - **Secrets**: Never commit keys, tokens, or `.env` content.
 - **Logs**: Ensure debug output does not leak access tokens.
 - **Documentation**: Synchronize documentation updates for all deployment or auth-related changes.
+
+## Lessons Learned
+
+- 2026-10-25: Pitfall: Declared upstream prompt correlation impossible from docs alone and missed caller-supplied IDs preserved through inbox delivery. Prevention: Trace IDs through pinned source from admission to terminal, replay, and cancellation before choosing fail-open or fail-closed behavior.

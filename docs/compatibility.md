@@ -95,8 +95,12 @@ cancellation, or duplicate admission after an uncertain timeout.
 Evidence links: pinned [prompt implementation](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/session.ts#L145-L175), [inbox reconciliation and delivery](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/inbox.ts#L154-L201), [delivery ordering](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/inbox.ts#L491-L529), [input projector](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/projector.ts#L618-L648), [step and execution event schemas](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/schema/src/session-event.ts#L203-L370), [assistant and idle message schemas](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/schema/src/session-message.ts#L212-L295), [bus persistence and log replay](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/bus.ts#L174-L204), and [stock CLI server options](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/cli/src/server-process.ts#L94-L134). The generated [v2.0.28 OpenAPI](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/protocol/openapi.json) specifies the endpoint envelopes. A v2.0.30 source spot-check found the same prompt-ID reconciliation, no input ID in assistant/step/terminal schemas, and the same `events.persist=false` bus default.
 
 V1 stays the default, and the adapter does not auto-detect or fall back between
-versions. The V2 session transport was exercised against OpenCode `2.0.28`; that
-experimental check does not add V2 to the supported runtime line above. V2
+versions. Reproduce the V2 session-transport check with
+`bash ./scripts/live_opencode_v2_session_smoke.sh`. It is pinned to
+OpenCode `2.0.28`, verifies Basic-auth rejection plus `/api/info`, `/api/location`,
+and session create/get/list through the application-selected V2 adapter, and
+submits no model prompt. This smoke does not add V2 to the supported runtime
+line above. V2
 session model selection changes persistent session state, so request-scoped
 model overrides are not supported; V2 `a2a_call` execution parity is also not
 claimed. OpenCode V2 allows `external_directory` by default. Before any future

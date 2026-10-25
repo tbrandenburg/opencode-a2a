@@ -200,6 +200,9 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Isolated issue-scoped agent worktrees
+.worktrees/
+
 # PyPI configuration file
 .pypirc
 

@@ -34,6 +34,7 @@
     "deleted_input_remained_pending": false
   },
   "after_volatile_sse_disconnect": {
+    "event_feed_closed_during_execution": false,
     "experimental_session_log_status": 200,
     "sse_data_frames": 1,
     "event_types": ["log.synced"]

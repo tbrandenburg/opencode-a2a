@@ -128,6 +128,8 @@ volatile feed, the experimental session log returned HTTP 200 with only a
 `log.synced` frame and no replayed step/input event. This demonstrates one
 controlled queue ordering, **not** a contract that every input has a distinct
 assistant or terminal result, nor a completed A2A execution E2E.
+The feed was closed after the observed terminal event; a mid-execution
+disconnect/recovery scenario was not exercised.
 
 A property-whitelisted, sanitized event trace and boolean run assertions are
 recorded in

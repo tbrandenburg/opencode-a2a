@@ -60,6 +60,8 @@ run_dir="$(mktemp -d "${TMPDIR:-/tmp}/opencode-a2a-v2-session.XXXXXX")"
 workspace_dir="${run_dir}/workspace"
 home_dir="${run_dir}/home"
 mkdir -p "${workspace_dir}" "${home_dir}/.config" "${home_dir}/.local/share" "${home_dir}/.cache"
+adapter_home="${run_dir}/adapter-home"
+mkdir -p "${adapter_home}/.config" "${adapter_home}/.cache" "${run_dir}/uv-cache"
 upstream_port="$(free_port)"
 upstream_url="http://127.0.0.1:${upstream_port}"
 upstream_username="opencode"
@@ -67,7 +69,60 @@ read -r upstream_password inbound_token < <(
   python3 -c 'import secrets; print(secrets.token_urlsafe(32), secrets.token_urlsafe(32))'
 )
 upstream_log="${run_dir}/opencode.log"
+credentials_file="${run_dir}/smoke-credentials.json"
+server_password_file="${run_dir}/server-password"
+curl_auth_config="${run_dir}/curl-auth.conf"
+curl_invalid_auth_config="${run_dir}/curl-invalid-auth.conf"
 server_pid=""
+umask 077
+printf '%s' "${upstream_password}" >"${server_password_file}"
+printf '%s\0' "${upstream_url}" "${workspace_dir}" "${upstream_username}" \
+  "${upstream_password}" "${inbound_token}" |
+  python3 -c '
+import json
+import os
+import sys
+from pathlib import Path
+
+values = sys.stdin.buffer.read().split(b"\0")
+if values[-1] == b"":
+    values.pop()
+if len(values) != 5:
+    raise RuntimeError("Expected five V2 smoke configuration values")
+configuration = dict(
+    zip(
+        ("base_url", "workspace", "username", "upstream_password", "inbound_token"),
+        (value.decode("utf-8") for value in values),
+        strict=True,
+    )
+)
+path = Path(sys.argv[1])
+with path.open("x", encoding="utf-8") as credentials:
+    json.dump(configuration, credentials)
+    credentials.flush()
+    os.fchmod(credentials.fileno(), 0o600)
+' \
+  "${credentials_file}"
+python3 - "${credentials_file}" "${curl_auth_config}" "${curl_invalid_auth_config}" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+configuration = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+auth_settings = (
+    (Path(sys.argv[2]), f"user = \"{configuration['username']}:{configuration['upstream_password']}\"\n"),
+    (
+        Path(sys.argv[3]),
+        f"user = \"{configuration['username']}:invalid-{configuration['inbound_token']}\"\n",
+    ),
+)
+for path, contents in auth_settings:
+    with path.open("x", encoding="utf-8") as auth_file:
+        auth_file.write(contents)
+        auth_file.flush()
+        os.fchmod(auth_file.fileno(), 0o600)
+PY
 
 cleanup() {
   local exit_code="$1"
@@ -90,9 +145,12 @@ env -i \
   XDG_DATA_HOME="${home_dir}/.local/share" \
   XDG_CACHE_HOME="${home_dir}/.cache" \
   TMPDIR="${run_dir}" \
+  SERVER_PASSWORD_FILE="${server_password_file}" \
   OPENCODE_SERVER_USERNAME="${upstream_username}" \
-  OPENCODE_SERVER_PASSWORD="${upstream_password}" \
-  "${opencode_bin}" serve --hostname 127.0.0.1 --port "${upstream_port}" \
+  bash -c '
+    export OPENCODE_SERVER_PASSWORD="$(<"${SERVER_PASSWORD_FILE}")"
+    exec "$@"
+  ' _ "${opencode_bin}" serve --hostname 127.0.0.1 --port "${upstream_port}" \
   >"${upstream_log}" 2>&1 &
 server_pid="$!"
 
@@ -102,7 +160,7 @@ for _ in $(seq 1 60); do
     echo "[v2-session-smoke] OpenCode exited before becoming ready" >&2
     exit 1
   fi
-  if curl -fsS --max-time 2 -u "${upstream_username}:${upstream_password}" \
+  if curl --config "${curl_auth_config}" -fsS --max-time 2 \
     "${upstream_url}/api/info" >/dev/null 2>&1; then
     upstream_ready="1"
     break
@@ -114,8 +172,8 @@ if [[ -z "${upstream_ready}" ]]; then
   exit 1
 fi
 
-auth_status="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' \
-  -u "${upstream_username}:invalid-${inbound_token}" "${upstream_url}/api/info")"
+auth_status="$(curl --config "${curl_invalid_auth_config}" -sS --max-time 2 \
+  -o /dev/null -w '%{http_code}' "${upstream_url}/api/info")"
 if [[ "${auth_status}" != "401" ]]; then
   echo "[v2-session-smoke] expected invalid credentials to return 401; got ${auth_status}" >&2
   exit 1
@@ -123,15 +181,16 @@ fi
 
 env -i \
   PATH="${PATH}" \
-  HOME="${run_dir}/adapter-home" \
+  HOME="${adapter_home}" \
+  XDG_CONFIG_HOME="${adapter_home}/.config" \
+  XDG_CACHE_HOME="${adapter_home}/.cache" \
   TMPDIR="${run_dir}" \
-  V2_SMOKE_BASE_URL="${upstream_url}" \
-  V2_SMOKE_WORKSPACE="${workspace_dir}" \
-  V2_SMOKE_USERNAME="${upstream_username}" \
-  V2_SMOKE_PASSWORD="${upstream_password}" \
-  V2_SMOKE_TOKEN="${inbound_token}" \
+  UV_CACHE_DIR="${run_dir}/uv-cache" \
+  UV_PROJECT_ENVIRONMENT="${run_dir}/.venv" \
+  V2_SMOKE_CREDENTIALS_FILE="${credentials_file}" \
   uv run --project "${ROOT_DIR}" python - <<'PY'
 import asyncio
+import json
 import os
 from pathlib import Path
 
@@ -141,19 +200,22 @@ from opencode_a2a.upstream.v2 import V2UpstreamAdapter
 
 
 async def main() -> None:
-    workspace = Path(os.environ["V2_SMOKE_WORKSPACE"])
+    credentials = json.loads(
+        Path(os.environ["V2_SMOKE_CREDENTIALS_FILE"]).read_text(encoding="utf-8")
+    )
+    workspace = Path(credentials["workspace"])
     settings = Settings(
         _env_file=None,
         opencode_api_version="v2",
-        opencode_base_url=os.environ["V2_SMOKE_BASE_URL"],
+        opencode_base_url=credentials["base_url"],
         opencode_workspace_root=str(workspace),
-        opencode_auth_username=os.environ["V2_SMOKE_USERNAME"],
-        opencode_auth_password=os.environ["V2_SMOKE_PASSWORD"],
+        opencode_auth_username=credentials["username"],
+        opencode_auth_password=credentials["upstream_password"],
         a2a_task_store_backend="memory",
         a2a_static_auth_credentials=(
             StaticAuthCredentialSettings(
                 scheme="bearer",
-                token=os.environ["V2_SMOKE_TOKEN"],
+                token=credentials["inbound_token"],
                 principal="v2-session-smoke",
             ),
         ),

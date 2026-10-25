@@ -12,14 +12,27 @@ This document defines the compatibility promises `opencode-a2a` currently uphold
 OpenCode V2 is an opt-in, experimental session-transport slice selected with
 `OPENCODE_API_VERSION=v2`. It implements `/api/info`, `/api/location`, and
 session create/get/list transport only; A2A prompt execution and all
-OpenCode-specific JSON-RPC extensions remain unavailable. V1 stays the
-default, and the adapter does not auto-detect or fall back between versions.
-The V2 session transport was exercised against OpenCode `2.0.28`; that
-experimental check does not add V2 to the supported runtime line above.
-OpenCode V2 allows `external_directory` by default. Before any future release of
-V2 prompt execution, operators must configure an explicit restrictive upstream
-V2 `permissions` policy. The current session-only slice does not perform model
-execution.
+OpenCode-specific JSON-RPC extensions remain unavailable. This is an explicit
+safety gate, not a claim that V2 prompt execution works: in the pinned
+OpenCode `2.0.28` contract, `POST /api/session/{sessionID}/prompt` returns a
+durable inbox admission receipt, while assistant messages and terminal
+`session.execution.*` events do not identify the admitted input. An idle marker
+can include multiple steered prompts in one turn. The public `/api/event`
+stream is volatile across disconnections, and active interruption applies to
+the session rather than one input (inbox cancellation only applies before
+delivery). See the pinned [prompt implementation](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/session.ts#L145-L175), [assistant/idle message schema](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/schema/src/session-message.ts#L212-L295), and [execution event schemas](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/schema/src/session-event.ts#L239-L258). The V2 [API reference](https://opencode.ai/v2/docs/api) describes `/api/event` as volatile and the interrupt route as session-scoped. These contracts do not establish the per-input completion,
+reconciliation, or cancellation required to safely map V2 work to an A2A task;
+the adapter therefore rejects the request before creating a session or
+submitting a prompt.
+
+V1 stays the default, and the adapter does not auto-detect or fall back between
+versions. The V2 session transport was exercised against OpenCode `2.0.28`; that
+experimental check does not add V2 to the supported runtime line above. V2
+session model selection changes persistent session state, so request-scoped
+model overrides are not supported; V2 `a2a_call` execution parity is also not
+claimed. OpenCode V2 allows `external_directory` by default. Before any future
+release of V2 prompt execution, operators must configure an explicit
+restrictive upstream V2 `permissions` policy.
 
 This is the single canonical place where the supported upstream OpenCode version line is declared. Keep it updated together with the live integration smoke check (`./scripts/live_opencode_smoke.sh`) and do not duplicate the version line elsewhere.
 

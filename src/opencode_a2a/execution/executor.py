@@ -110,14 +110,16 @@ class OpencodeAgentExecutor(AgentExecutor):
             return
 
         if not getattr(self._client, "prompt_execution_supported", True):
+            unsupported_reason = getattr(
+                self._client,
+                "prompt_execution_unsupported_reason",
+                "OpenCode prompt execution is unsupported by the selected upstream adapter.",
+            )
             await self._emit_error(
                 event_queue,
                 task_id=task_id,
                 context_id=context_id,
-                message=(
-                    "OpenCode V2 prompt execution is not implemented; session transport is "
-                    "experimental and prompt execution will be available in a later release."
-                ),
+                message=unsupported_reason,
                 state=TaskState.TASK_STATE_FAILED,
                 error_type="UPSTREAM_UNSUPPORTED",
                 streaming_request=self._should_stream(context),

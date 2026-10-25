@@ -23,9 +23,14 @@ class UnsupportedUpstreamOperationError(RuntimeError):
 
 
 class V2UpstreamAdapter(OpencodeUpstreamClient):
-    """Explicit V2 session transport using the shared V1 HTTP facade infrastructure."""
+    """V2 session transport; prompt execution stays gated without safe correlation."""
 
     prompt_execution_supported = False
+    prompt_execution_unsupported_reason = (
+        "OpenCode V2 prompt execution is disabled because the upstream contract does not "
+        "prove a per-input terminal outcome or task-scoped cancellation. The prompt endpoint "
+        "only admits session work; no prompt was submitted."
+    )
 
     def __init__(
         self,
@@ -207,10 +212,7 @@ class V2UpstreamAdapter(OpencodeUpstreamClient):
         timeout_override: float | None | object = ...,
     ) -> OpencodeMessage:
         del session_id, text, parts, directory, workspace_id, model_override, timeout_override
-        raise UnsupportedUpstreamOperationError(
-            "OpenCode V2 prompt execution is not implemented; use OPENCODE_API_VERSION=v1 "
-            "or wait for the V2 execution support release."
-        )
+        raise UnsupportedUpstreamOperationError(self.prompt_execution_unsupported_reason)
 
     async def submit_prompt(
         self,
@@ -224,7 +226,4 @@ class V2UpstreamAdapter(OpencodeUpstreamClient):
         timeout_override: float | None | object = ...,
     ) -> PromptSubmission:
         del session_id, text, parts, directory, workspace_id, model_override, timeout_override
-        raise UnsupportedUpstreamOperationError(
-            "OpenCode V2 prompt execution is not implemented; use OPENCODE_API_VERSION=v1 "
-            "or wait for the V2 execution support release."
-        )
+        raise UnsupportedUpstreamOperationError(self.prompt_execution_unsupported_reason)

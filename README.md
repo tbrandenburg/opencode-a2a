@@ -47,6 +47,37 @@ flowchart TD
 
 ## Quick Start
 
+### Development commands
+
+From a checkout, run `make help` for the available commands:
+
+```bash
+make install      # Install the locked development environment
+make run          # Start only the gateway in the background
+make status
+make stop         # Stop only that managed gateway
+make test
+make lint
+make check        # Full doctor gate
+make build
+make conformance
+make clean        # Build/test caches only; preserves runtime state and databases
+```
+
+`make run` requires your existing gateway configuration in the environment or a
+protected, untracked `.env`, including `A2A_STATIC_AUTH_CREDENTIALS`. It does not
+start OpenCode, generate credentials, or enable V2 execution. The V2 private
+deployment requirements below still apply; run it inside that deployment when
+using `OPENCODE_V2_EXECUTION=exclusive`.
+
+The `run`, `stop`, and `status` convenience targets require Linux with PID file
+descriptor support. They keep private process metadata and logs under
+`run/gateway/` (override with `RUN_DIR=/path/to/private/state`). Duplicate starts
+reuse the tracked process; stop validates its identity and never kills by name
+or port. Treat this as a local convenience, not a production supervisor.
+
+### API selection and installation
+
 **Breaking default change:** V2 is now the default upstream API, but A2A
 execution remains disabled until `OPENCODE_V2_EXECUTION=exclusive` is explicitly
 set under the [private deployment contract](docs/v2-exclusive-execution.md).

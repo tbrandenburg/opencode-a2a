@@ -11,6 +11,7 @@ Executable scripts live in this directory. This file is the entry index for the 
 
 ## Other Scripts
 
+- [`gateway_process.py`](./gateway_process.py): Linux-only local gateway lifecycle helper behind `make run/stop/status`; inherits configuration, detaches the gateway with private logs, and verifies process identity before signaling. It never manages upstream OpenCode or opts into exclusive execution.
 - [`doctor.sh`](./doctor.sh): primary local development regression entrypoint with explicit fix/verify/package phases (uv sync + dependency compatibility + lint + mypy + tests + coverage + hash-locked PEP 517 build + built-wheel smoke test)
 - [`conformance.sh`](./conformance.sh): repository-owned A2A 1.0 black-box compatibility probes; can launch a dummy-backed local SUT and preserves machine-readable artifacts under `run/conformance/`
 - [`live_opencode_smoke.sh`](./live_opencode_smoke.sh): local/manual live integration smoke with explicit V1 opt-in against a real OpenCode runtime; boots an isolated password-hardened `opencode serve` plus the opencode-a2a runtime in throwaway directories and verifies upstream auth, JSON-RPC extension reads, and a streaming prompt round-trip

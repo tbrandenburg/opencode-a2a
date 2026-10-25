@@ -27,9 +27,10 @@ class V2UpstreamAdapter(OpencodeUpstreamClient):
 
     prompt_execution_supported = False
     prompt_execution_unsupported_reason = (
-        "OpenCode V2 prompt execution is disabled because the upstream contract does not "
-        "prove a per-input terminal outcome or task-scoped cancellation. The prompt endpoint "
-        "only admits session work; no prompt was submitted."
+        "OpenCode V2 prompt execution is disabled: a caller-supplied input ID identifies its "
+        "inbox/user message, but the upstream contract does not prove a per-input terminal "
+        "outcome after event loss or support task-scoped active cancellation. "
+        "No prompt was submitted."
     )
 
     def __init__(

@@ -12,18 +12,57 @@ This document defines the compatibility promises `opencode-a2a` currently uphold
 OpenCode V2 is an opt-in, experimental session-transport slice selected with
 `OPENCODE_API_VERSION=v2`. It implements `/api/info`, `/api/location`, and
 session create/get/list transport only; A2A prompt execution and all
-OpenCode-specific JSON-RPC extensions remain unavailable. This is an explicit
-safety gate, not a claim that V2 prompt execution works: in the pinned
-OpenCode `2.0.28` contract, `POST /api/session/{sessionID}/prompt` returns a
-durable inbox admission receipt, while assistant messages and terminal
-`session.execution.*` events do not identify the admitted input. An idle marker
-can include multiple steered prompts in one turn. The public `/api/event`
-stream is volatile across disconnections, and active interruption applies to
-the session rather than one input (inbox cancellation only applies before
-delivery). See the pinned [prompt implementation](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/session.ts#L145-L175), [assistant/idle message schema](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/schema/src/session-message.ts#L212-L295), and [execution event schemas](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/schema/src/session-event.ts#L239-L258). The V2 [API reference](https://opencode.ai/v2/docs/api) describes `/api/event` as volatile and the interrupt route as session-scoped. These contracts do not establish the per-input completion,
-reconciliation, or cancellation required to safely map V2 work to an A2A task;
-the adapter therefore rejects the request before creating a session or
-submitting a prompt.
+OpenCode-specific JSON-RPC extensions remain unavailable. This remains an
+explicit safety gate, not a claim that V2 prompt execution works.
+
+The pinned OpenCode `2.0.28` source confirms one useful correlation link: a
+caller-supplied `Session.Message.ID` is reconciled as the inbox ID, and the
+`InboxDelivered` projector writes the visible `Session.Message.User` with that
+same ID. That identifies admission and delivery, but does not directly bind
+later assistant steps or session execution terminals to the input. Reusing the
+same ID in the same session/type reconciles to the first admission, including
+after delivery; a retry must therefore reuse the exact original payload and ID.
+
+```text
+POST prompt(id) -> inbox.enqueued(inboxID=id) -> inbox.delivered(inboxID=id)
+                                             -> projected user message(id)  [proven]
+                                             -> step.started(assistantMessageID)
+                                             -> step.ended(assistantMessageID)
+                                             -> execution.terminal(sessionID) [not input-scoped]
+```
+
+`Step.Started` / `Step.Ended` carry an assistant message ID, not the input ID;
+`session.execution.*` carries only the session ID and represents a process-local
+busy period. The runner delivers inputs at step boundaries. At an input
+boundary, it prioritizes pending steers, delivers at most one queued input, then
+also promotes steers that arrived during delivery. Thus `delivery=queue` and
+the gateway's local session lock do not exclude another OpenCode client from
+the same step context. A conservative live observer could infer a step belongs
+to an input only while that input is the sole newly delivered prompt in the
+step's context, then fail uncertain on interleaving. That inference is not
+implemented or verified here.
+
+Recovery is a separate blocker. The experimental
+`GET /api/experimental/session/{sessionID}/log?after=...&follow=true` uses an
+exclusive aggregate sequence and a replay-to-live `log.synced` watermark, but
+v2.0.28 stores event rows only when the internal `events.persist` option is
+enabled. The stock CLI does not set that option and the bus default is false;
+the log therefore cannot replay durable step events in the default server
+configuration. Persisted rows have no configured TTL and are deleted with the
+session. `GET /api/event` is a separate volatile feed that misses events during
+disconnection and has no replay cursor. Message projections can show current
+assistant snapshots, but do not expose the durable event sequence needed to
+reconstruct a missed input-to-step boundary with certainty.
+
+Cancellation is also not task-scoped: `DELETE .../inbox/{inboxID}` only cancels
+an undelivered item and returns no indication whether it was available;
+`POST .../interrupt` interrupts active execution for the whole session. The
+adapter cannot safely use that interrupt for one A2A task when another client
+may have queued work. The adapter therefore rejects before creating a session
+or submitting a prompt rather than risking cross-task completion, false
+cancellation, or duplicate admission after an uncertain timeout.
+
+Evidence links: pinned [prompt implementation](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/session.ts#L145-L175), [inbox reconciliation and delivery](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/inbox.ts#L154-L201), [delivery ordering](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/inbox.ts#L491-L529), [input projector](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/projector.ts#L618-L648), [step and execution event schemas](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/schema/src/session-event.ts#L203-L370), [assistant and idle message schemas](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/schema/src/session-message.ts#L212-L295), [bus persistence and log replay](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/bus.ts#L174-L204), and [stock CLI server options](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/cli/src/server-process.ts#L94-L134). The generated [v2.0.28 OpenAPI](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/protocol/openapi.json) specifies the endpoint envelopes. A v2.0.30 source spot-check found the same prompt-ID reconciliation, no input ID in assistant/step/terminal schemas, and the same `events.persist=false` bus default.
 
 V1 stays the default, and the adapter does not auto-detect or fall back between
 versions. The V2 session transport was exercised against OpenCode `2.0.28`; that

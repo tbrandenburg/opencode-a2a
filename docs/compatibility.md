@@ -42,7 +42,8 @@ HTTP request. The same extension hiding applies to shared interrupt callbacks.
 V2 support does **not** claim A2A execution, task-scoped cancellation,
 permission/form interventions, request-scoped model overrides, structured tool
 execution, or outbound `a2a_call` support. `2.0.28` evidence is limited to
-session transport; no V2 model-backed acceptance run is claimed. Parent epic
+session transport plus an upstream-only correlation probe; no V2 model-backed
+A2A acceptance run is claimed. Parent epic
 #1 and the #4/#5 acceptance criteria remain open and unverified.
 
 The pinned OpenCode `2.0.28` source confirms one useful correlation link: a
@@ -93,6 +94,54 @@ or submitting a prompt rather than risking cross-task completion, false
 cancellation, or duplicate admission after an uncertain timeout.
 
 Evidence links: pinned [prompt implementation](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/session.ts#L145-L175), [inbox reconciliation and delivery](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/inbox.ts#L154-L201), [delivery ordering](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/inbox.ts#L491-L529), [input projector](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/session/projector.ts#L618-L648), [step and execution event schemas](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/schema/src/session-event.ts#L203-L370), [assistant and idle message schemas](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/schema/src/session-message.ts#L212-L295), [bus persistence and log replay](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/core/src/bus.ts#L174-L204), and [stock CLI server options](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/cli/src/server-process.ts#L94-L134). The generated [v2.0.28 OpenAPI](https://github.com/anomalyco/opencode/blob/v2.0.28/packages/protocol/openapi.json) specifies the endpoint envelopes. A v2.0.30 source spot-check found the same prompt-ID reconciliation, no input ID in assistant/step/terminal schemas, and the same `events.persist=false` bus default.
+
+### Live upstream Phase 1 correlation probe
+
+A sanitized, isolated upstream-only experiment against OpenCode `2.0.28` used
+`openai/gpt-6-luna-fast`, a temporary workspace, and restrictive session
+permissions. It did **not** use the A2A adapter; the API credential was passed
+only to the isolated server through a mode-restricted temporary file and was
+neither printed nor included in prompt text. The event subscription returned
+HTTP 200 before prompt admission. Two distinct `delivery=queue` inputs were
+admitted; the second was submitted after the first `session.step.started`. Both
+receipt IDs matched the caller-supplied IDs, both IDs appeared in
+`session.inbox.delivered` and the projected user messages, and separate
+assistant messages were projected. Both expected sentinel strings appeared
+across the assistant history; this probe did not retain raw assistant text or
+prove which individual message contained which sentinel. The observed order
+was:
+
+```text
+inbox.enqueued(A) -> inbox.delivered(A) -> step.started(S1)
+-> inbox.enqueued(B) -> step.ended(S1) -> inbox.delivered(B)
+-> step.started(S2) -> step.ended(S2)
+-> session.execution.succeeded(session only)
+```
+
+`S1` and `S2` denote the assistant message IDs carried by step events; the
+events do not identify either step as caused by input A or B.
+The single terminal event followed both prompts and contained no input ID;
+assistant message schemas also had no input-link field. A separate pending
+input test confirmed exact same-ID retry returned the original receipt and
+deleting that still-undelivered inbox item returned `204`. After closing the
+volatile feed, the experimental session log returned HTTP 200 with only a
+`log.synced` frame and no replayed step/input event. This demonstrates one
+controlled queue ordering, **not** a contract that every input has a distinct
+assistant or terminal result, nor a completed A2A execution E2E.
+
+A property-whitelisted, sanitized event trace and boolean run assertions are
+recorded in
+[`docs/evidence/opencode-v2.0.28-correlation-probe.json`](./evidence/opencode-v2.0.28-correlation-probe.json).
+It omits credentials, session/workspace IDs, prompt and model text, sentinel
+strings, and raw event payloads. It documents one observed run, not a general
+upstream guarantee.
+
+**Phase 1 decision: FAIL.** Do not enable V2 A2A prompts from this evidence.
+The smallest feasible upstream remedy is to propagate a stable input/execution
+ID through assistant-step and terminal events, provide replayable or
+input-addressable terminal status, and make active cancellation input-scoped
+(or document an enforceable exclusive-session contract). Until then, ambiguous
+or disconnected outcomes must remain fail-closed.
 
 V1 stays the default, and the adapter does not auto-detect or fall back between
 versions. Reproduce the V2 session-transport check with
